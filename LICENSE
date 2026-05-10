@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2026 정필성
+Copyright (c) 2026 Jeong Pil-Seong (정필성)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,3 +19,28 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+---
+
+Note on third-party content:
+
+This installer script does NOT redistribute code from gstack or Superpowers.
+It is a downloader: when executed, it triggers `git clone` on the user's
+machine to fetch the upstream repositories directly. The downloaded content
+remains under the original projects' MIT licenses:
+
+  - garrytan/gstack
+    https://github.com/garrytan/gstack
+    MIT License, Copyright (c) Garry Tan and contributors
+
+  - obra/superpowers
+    https://github.com/obra/superpowers
+    MIT License, Copyright (c) Jesse Vincent and contributors
+
+  - obra/superpowers-skills
+    https://github.com/obra/superpowers-skills
+    MIT License, Copyright (c) Jesse Vincent and contributors
+
+This project is not affiliated with, endorsed by, or sponsored by Y Combinator,
+Garry Tan, Jesse Vincent, Prime Radiant, or Anthropic. It is an independent,
+unofficial helper that automates a specific cherry-pick installation pattern.
