@@ -131,7 +131,9 @@ while [ $# -gt 0 ]; do
       [ -n "${2:-}" ] || err "--target에 디렉토리 인자가 필요합니다"
       TARGET_DIR="$2"; shift 2 ;;
     -h|--help)
-      sed -n '1,50p' "$0"; exit 0 ;;
+      # 파일 상단 주석 블록(shebang + 연속된 # 라인)을 전부 출력
+      awk 'NR==1 {print; next} /^#/ {print; next} {exit}' "$0"
+      exit 0 ;;
     *) err "알 수 없는 옵션: $1" ;;
   esac
 done
@@ -144,20 +146,24 @@ fi
 
 # 옵션 플래그에 따라 스킬 배열 확장
 # 주의: set -u 환경에서 빈 배열 확장이 오류를 낼 수 있어 길이 체크 후 확장
-if [ "$WITH_DEBUG" -eq 1 ]; then
-  if [ "${#DEBUG_GSTACK_SKILLS[@]}" -gt 0 ]; then
-    GSTACK_SKILLS+=("${DEBUG_GSTACK_SKILLS[@]}")
+# --remove 모드는 아래 자체 로직에서 모든 후보를 처리하므로 여기서는 확장 생략
+# (확장하면 ALL_REMOVABLE 구성 시 동일 스킬이 중복 추가됨)
+if [ "$REMOVE" -eq 0 ]; then
+  if [ "$WITH_DEBUG" -eq 1 ]; then
+    if [ "${#DEBUG_GSTACK_SKILLS[@]}" -gt 0 ]; then
+      GSTACK_SKILLS+=("${DEBUG_GSTACK_SKILLS[@]}")
+    fi
+    if [ "${#DEBUG_SUPERPOWERS_SKILLS[@]}" -gt 0 ]; then
+      SUPERPOWERS_SKILLS+=("${DEBUG_SUPERPOWERS_SKILLS[@]}")
+    fi
   fi
-  if [ "${#DEBUG_SUPERPOWERS_SKILLS[@]}" -gt 0 ]; then
-    SUPERPOWERS_SKILLS+=("${DEBUG_SUPERPOWERS_SKILLS[@]}")
-  fi
-fi
-if [ "$WITH_REVIEW" -eq 1 ]; then
-  if [ "${#REVIEW_GSTACK_SKILLS[@]}" -gt 0 ]; then
-    GSTACK_SKILLS+=("${REVIEW_GSTACK_SKILLS[@]}")
-  fi
-  if [ "${#REVIEW_SUPERPOWERS_SKILLS[@]}" -gt 0 ]; then
-    SUPERPOWERS_SKILLS+=("${REVIEW_SUPERPOWERS_SKILLS[@]}")
+  if [ "$WITH_REVIEW" -eq 1 ]; then
+    if [ "${#REVIEW_GSTACK_SKILLS[@]}" -gt 0 ]; then
+      GSTACK_SKILLS+=("${REVIEW_GSTACK_SKILLS[@]}")
+    fi
+    if [ "${#REVIEW_SUPERPOWERS_SKILLS[@]}" -gt 0 ]; then
+      SUPERPOWERS_SKILLS+=("${REVIEW_SUPERPOWERS_SKILLS[@]}")
+    fi
   fi
 fi
 
@@ -202,7 +208,7 @@ if [ "$REMOVE" -eq 1 ]; then
     run "rm -rf '$TARGET_DIR/$GSTACK_SOURCE_NAME'"
   fi
 
-  log "총 $REMOVED_COUNT개 스킬 제거 완료. CLAUDE.md에 추가하셨던 스킬 목록도 직접 정리해 주세요."
+  log "총 ${REMOVED_COUNT}개 스킬 제거 완료. CLAUDE.md에 추가하셨던 스킬 목록도 직접 정리해 주세요."
   exit 0
 fi
 
@@ -253,8 +259,10 @@ GSTACK_DEST="$TARGET_DIR/$GSTACK_SOURCE_NAME"
 log "gstack 레포 가져오기..."
 if [ -d "$GSTACK_DEST/.git" ]; then
   log "  기존 클론 발견 → fetch 후 reset"
-  run "git -C '$GSTACK_DEST' fetch --depth 1 origin main"
-  run "git -C '$GSTACK_DEST' reset --hard origin/main"
+  # default 브랜치가 변경되어도 동작하도록 origin HEAD를 사용.
+  # git fetch origin HEAD는 원격의 default 브랜치를 가져와 FETCH_HEAD에 저장.
+  run "git -C '$GSTACK_DEST' fetch --depth 1 origin HEAD"
+  run "git -C '$GSTACK_DEST' reset --hard FETCH_HEAD"
 else
   if [ "$DRY_RUN" -eq 1 ]; then
     log "  (dry-run) git clone --depth 1 $GSTACK_REPO '$GSTACK_DEST'"
@@ -354,14 +362,20 @@ if [ "$DRY_RUN" -eq 0 ]; then
   INSTALLED="${GSTACK_SKILLS[*]} ${SUPERPOWERS_SKILLS[*]}"
 
   # gstack 쪽에서 미설치 슬래시 명령 호출 검색
-  # gstack의 알려진 슬래시 명령 화이트리스트 (디렉토리 이름과 우연히 겹치는
-  # /bin, /test, /claude, /lib 같은 false positive 차단)
-  GSTACK_SLASH_COMMANDS="autoplan benchmark browse canary careful codex cso \
-design-consultation design-html design-review design-shotgun devex-review \
-document-release freeze guard gstack-upgrade investigate land-and-deploy learn \
-office-hours open-gstack-browser pair-agent plan-ceo-review plan-design-review \
-plan-devex-review plan-eng-review plan-tune qa qa-only retro review setup-browser-cookies \
-setup-deploy setup-gbrain ship sync-gbrain unfreeze"
+  # _gstack-source의 1-depth 디렉토리(SKILL.md 보유 폴더)를 실제 슬래시 명령
+  # 화이트리스트로 사용. 하드코딩 시 신규 명령 추가에 따라 노후화되는 문제를 회피.
+  # bin/, lib/, contrib/, .git/ 같은 디렉토리는 SKILL.md가 없어 자동 제외.
+  if [ -d "$GSTACK_DEST" ]; then
+    GSTACK_SLASH_COMMANDS=""
+    for d in "$GSTACK_DEST"/*/; do
+      [ -d "$d" ] || continue
+      cmd=$(basename "$d")
+      [ -f "$d/SKILL.md" ] || continue
+      GSTACK_SLASH_COMMANDS="$GSTACK_SLASH_COMMANDS $cmd"
+    done
+  else
+    GSTACK_SLASH_COMMANDS=""
+  fi
 
   log "gstack 미설치 명령 참조 점검..."
   any_warning=0
@@ -388,7 +402,7 @@ setup-deploy setup-gbrain ship sync-gbrain unfreeze"
 
     if [ -n "$missing" ]; then
       count=$(echo "$missing" | wc -w | tr -d ' ')
-      log "  $s: 미설치 gstack 명령 $count개 언급됨 →$missing"
+      log "  $s: 미설치 gstack 명령 ${count}개 언급됨 →$missing"
       any_warning=1
     fi
   done
